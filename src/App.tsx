@@ -130,6 +130,14 @@ export default function App() {
 
           <button
             className="hud-btn"
+            id="btn-mode-toggle"
+            title="Switch between Play vs AI and Play with Friend — Local 2 Players (same phone)"
+            onClick={() => setMobileSheetOpen(false)}
+          >
+            Mode: Play vs AI
+          </button>
+          <button
+            className="hud-btn"
             id="btn-side-toggle"
             title="Switch between Playing as White and Playing as Black"
             onClick={() => setMobileSheetOpen(false)}

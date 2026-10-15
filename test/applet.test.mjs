@@ -71,4 +71,19 @@ test('All 7 compressed 3D assets (.glb.gz.b64) decode and gunzip to valid glTF 2
     assert.equal(version, 2, `Invalid glTF version for ${name}`);
     assert.equal(totalLen, glbBuf.length, `Mismatched glTF byte length for ${name}`);
   }
+});test('Local 2-Player (Same Phone) mode and Play vs AI mode options exist and are supported in engine', () => {
+  const appTsx = fs.readFileSync(path.join(ROOT, 'src/App.tsx'), 'utf-8');
+  assert.ok(appTsx.includes('id="btn-mode-toggle"'), 'App.tsx must include btn-mode-toggle for mode switching');
+  assert.ok(appTsx.includes('Mode: Play vs AI'), 'App.tsx must display Play vs AI mode label');
+  assert.ok(appTsx.includes('Local 2 Players'), 'App.tsx must describe Local 2 Players in mode toggle title');
+
+  const engineCode = fs.readFileSync(path.join(ROOT, 'src/wizardChessEngine.js'), 'utf-8');
+  // Check that setGameMode is implemented and handles 'local' and 'single'
+  assert.ok(engineCode.includes('function setGameMode(mode)'), 'Engine must define setGameMode');
+  assert.ok(engineCode.includes("btnModeToggle.textContent = gameMode === 'local' ? 'Mode: Local 2 Players' : 'Mode: Play vs AI'"), 'Engine must update mode toggle text for Local and AI modes');
+  // Check that local mode suppresses AI move triggering
+  assert.ok(engineCode.includes("if (gameMode === 'local') return false;"), 'Engine must guard triggerAIMoveNow against accidental AI moves in local mode');
+  assert.ok(engineCode.includes("if (gameMode !== 'single' || !aiAutoPlay) return;"), 'Engine must not schedule AI moves unless single player mode');
+  // Check that setGameMode is exposed on window.wizardChess
+  assert.ok(engineCode.includes('setGameMode: (mode) =>'), 'Engine must expose setGameMode on window.wizardChess API');
 });
