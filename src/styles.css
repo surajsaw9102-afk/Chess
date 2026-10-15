@@ -32,12 +32,14 @@ html, body, #root {
   width: 100vw;
   height: 100vh;
   z-index: 1;
+  touch-action: none;
 }
 
 #canvas-container canvas {
   display: block;
   width: 100% !important;
   height: 100% !important;
+  touch-action: none;
 }
 
 /* Floating Minimal Top HUD */

@@ -16,12 +16,32 @@ export function initWizardChess() {
     const BOARD_SQ_SIZE = 0.34;
     const BOARD_SURFACE_Y = 0.775;
 
+    const BOARD_WORLD_POS = Array.from({ length: 8 }, (_, r) =>
+      Array.from({ length: 8 }, (_, c) =>
+        new THREE.Vector3(
+          (c - 3.5) * BOARD_SQ_SIZE,
+          BOARD_SURFACE_Y,
+          (r - 3.5) * BOARD_SQ_SIZE
+        )
+      )
+    );
+
     function boardToWorld(r, c) {
+      if (r >= 0 && r < 8 && c >= 0 && c < 8) {
+        return BOARD_WORLD_POS[r][c].clone();
+      }
       return new THREE.Vector3(
         (c - 3.5) * BOARD_SQ_SIZE,
         BOARD_SURFACE_Y,
         (r - 3.5) * BOARD_SQ_SIZE
       );
+    }
+
+    function getBoardWorldPosRef(r, c) {
+      if (r >= 0 && r < 8 && c >= 0 && c < 8) {
+        return BOARD_WORLD_POS[r][c];
+      }
+      return boardToWorld(r, c);
     }
 
     function easeInOutCubic(x) {
@@ -40,13 +60,19 @@ export function initWizardChess() {
     const isAutomatedTest = Boolean(
       navigator.webdriver || new URLSearchParams(window.location.search).get('autotest') === '1'
     );
+    const isMobileDevice =
+      typeof navigator !== 'undefined' &&
+      (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+        (navigator.maxTouchPoints && navigator.maxTouchPoints > 1) ||
+        window.innerWidth <= 768);
+
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: 'high-performance',
       preserveDrawingBuffer: isAutomatedTest
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(isMobileDevice ? Math.min(window.devicePixelRatio, 1.75) : Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.shadowMap.autoUpdate = false;
@@ -215,8 +241,9 @@ export function initWizardChess() {
     const keyLight = new THREE.DirectionalLight(0xfff0d6, 2.55);
     keyLight.position.set(3.8, 8.5, 4.2);
     keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 2048;
-    keyLight.shadow.mapSize.height = 2048;
+    const shadowRes = isMobileDevice ? 1024 : 2048;
+    keyLight.shadow.mapSize.width = shadowRes;
+    keyLight.shadow.mapSize.height = shadowRes;
     keyLight.shadow.camera.near = 1.0;
     keyLight.shadow.camera.far = 22.0;
     const d = 3.2;
@@ -487,6 +514,8 @@ export function initWizardChess() {
             const pieceH = (typeof PIECE_HEIGHTS === 'object' && PIECE_HEIGHTS[pc.type]) ? PIECE_HEIGHTS[pc.type] : 0.42;
             const pieceTopY = pc.mesh.position.y + pieceH + 0.10;
             if (curPos.y >= pieceTopY) continue;
+            if (Math.abs(x1 - px) > 0.4 && (!prevPos || Math.abs(x0 - px) > 0.4)) continue;
+            if (Math.abs(z1 - pz) > 0.4 && (!prevPos || Math.abs(z0 - pz) > 0.4)) continue;
 
             let tPiece = 1.0;
             if (isContinuousStep) {
@@ -1775,6 +1804,10 @@ export function initWizardChess() {
         boardState[0][c] = instantiatePiece(backRow[c], 'b', 0, c);
       }
 
+      if (typeof updateRaycastTargets === 'function') {
+        updateRaycastTargets();
+      }
+
       if (orientCamera) {
         const viewSide = playerColor === 'b' ? 'b' : 'w';
         playerCamSide = viewSide;
@@ -1850,6 +1883,89 @@ export function initWizardChess() {
       return moves;
     }
 
+    const KNIGHT_JUMPS = [
+      [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+      [1, -2], [1, 2], [2, -1], [2, 1]
+    ];
+    const KING_DELTAS = [
+      [-1, -1], [-1, 0], [-1, 1],
+      [0, -1],           [0, 1],
+      [1, -1],  [1, 0],  [1, 1]
+    ];
+    const ORTHO_DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    const DIAG_DIRS = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+
+    function isSquareAttacked(targetR, targetC, byColor, board = boardState) {
+      // 1. Pawn attacks (White attacks from r+1, Black from r-1)
+      const pawnFromR = byColor === 'w' ? targetR + 1 : targetR - 1;
+      if (pawnFromR >= 0 && pawnFromR < 8) {
+        if (targetC - 1 >= 0) {
+          const p = board[pawnFromR][targetC - 1];
+          if (p && p.color === byColor && p.type === 'pawn') return true;
+        }
+        if (targetC + 1 < 8) {
+          const p = board[pawnFromR][targetC + 1];
+          if (p && p.color === byColor && p.type === 'pawn') return true;
+        }
+      }
+
+      // 2. Knight attacks
+      for (let i = 0; i < 8; i++) {
+        const nr = targetR + KNIGHT_JUMPS[i][0];
+        const nc = targetC + KNIGHT_JUMPS[i][1];
+        if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+          const p = board[nr][nc];
+          if (p && p.color === byColor && p.type === 'knight') return true;
+        }
+      }
+
+      // 3. King attacks
+      for (let i = 0; i < 8; i++) {
+        const nr = targetR + KING_DELTAS[i][0];
+        const nc = targetC + KING_DELTAS[i][1];
+        if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+          const p = board[nr][nc];
+          if (p && p.color === byColor && p.type === 'king') return true;
+        }
+      }
+
+      // 4. Orthogonal sliders (Rook & Queen)
+      for (let i = 0; i < 4; i++) {
+        const dr = ORTHO_DIRS[i][0];
+        const dc = ORTHO_DIRS[i][1];
+        let nr = targetR + dr;
+        let nc = targetC + dc;
+        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+          const p = board[nr][nc];
+          if (p) {
+            if (p.color === byColor && (p.type === 'rook' || p.type === 'queen')) return true;
+            break;
+          }
+          nr += dr;
+          nc += dc;
+        }
+      }
+
+      // 5. Diagonal sliders (Bishop & Queen)
+      for (let i = 0; i < 4; i++) {
+        const dr = DIAG_DIRS[i][0];
+        const dc = DIAG_DIRS[i][1];
+        let nr = targetR + dr;
+        let nc = targetC + dc;
+        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+          const p = board[nr][nc];
+          if (p) {
+            if (p.color === byColor && (p.type === 'bishop' || p.type === 'queen')) return true;
+            break;
+          }
+          nr += dr;
+          nc += dc;
+        }
+      }
+
+      return false;
+    }
+
     function isKingInCheck(color, board = boardState) {
       let kingR = -1;
       let kingC = -1;
@@ -1862,21 +1978,11 @@ export function initWizardChess() {
             break;
           }
         }
+        if (kingR !== -1) break;
       }
       if (kingR === -1) return true;
       const oppColor = color === 'w' ? 'b' : 'w';
-      for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-          const p = board[r][c];
-          if (p && p.color === oppColor) {
-            const oppMoves = getPseudoMovesForPiece(r, c, board);
-            if (oppMoves.some((m) => m.r === kingR && m.c === kingC)) {
-              return true;
-            }
-          }
-        }
-      }
-      return false;
+      return isSquareAttacked(kingR, kingC, oppColor, board);
     }
 
     function getLegalMovesForPiece(r, c) {
@@ -1896,12 +2002,13 @@ export function initWizardChess() {
 
       // Castling (Kingside O-O to c=6, Queenside O-O-O to c=2)
       const homeRow = piece.color === 'w' ? 7 : 0;
+      const oppColor = piece.color === 'w' ? 'b' : 'w';
       if (
         piece.type === 'king' &&
         !piece.hasMoved &&
         r === homeRow &&
         c === 4 &&
-        !isKingInCheck(piece.color, boardState)
+        !isSquareAttacked(homeRow, 4, oppColor, boardState)
       ) {
         // Kingside (O-O: King e->g [4->6], Rook h->f [7->5])
         const kRook = boardState[homeRow][7];
@@ -1911,19 +2018,11 @@ export function initWizardChess() {
           kRook.color === piece.color &&
           !kRook.hasMoved &&
           !boardState[homeRow][5] &&
-          !boardState[homeRow][6]
+          !boardState[homeRow][6] &&
+          !isSquareAttacked(homeRow, 5, oppColor, boardState) &&
+          !isSquareAttacked(homeRow, 6, oppColor, boardState)
         ) {
-          boardState[homeRow][5] = piece;
-          boardState[homeRow][4] = null;
-          const checkF = isKingInCheck(piece.color, boardState);
-          boardState[homeRow][6] = piece;
-          boardState[homeRow][5] = null;
-          const checkG = isKingInCheck(piece.color, boardState);
-          boardState[homeRow][4] = piece;
-          boardState[homeRow][6] = null;
-          if (!checkF && !checkG) {
-            legal.push({ r: homeRow, c: 6, capture: false, castle: 'k', rookFromC: 7, rookToC: 5 });
-          }
+          legal.push({ r: homeRow, c: 6, capture: false, castle: 'k', rookFromC: 7, rookToC: 5 });
         }
         // Queenside (O-O-O: King e->c [4->2], Rook a->d [0->3])
         const qRook = boardState[homeRow][0];
@@ -1934,19 +2033,11 @@ export function initWizardChess() {
           !qRook.hasMoved &&
           !boardState[homeRow][1] &&
           !boardState[homeRow][2] &&
-          !boardState[homeRow][3]
+          !boardState[homeRow][3] &&
+          !isSquareAttacked(homeRow, 3, oppColor, boardState) &&
+          !isSquareAttacked(homeRow, 2, oppColor, boardState)
         ) {
-          boardState[homeRow][3] = piece;
-          boardState[homeRow][4] = null;
-          const checkD = isKingInCheck(piece.color, boardState);
-          boardState[homeRow][2] = piece;
-          boardState[homeRow][3] = null;
-          const checkC = isKingInCheck(piece.color, boardState);
-          boardState[homeRow][4] = piece;
-          boardState[homeRow][2] = null;
-          if (!checkD && !checkC) {
-            legal.push({ r: homeRow, c: 2, capture: false, castle: 'q', rookFromC: 0, rookToC: 3 });
-          }
+          legal.push({ r: homeRow, c: 2, capture: false, castle: 'q', rookFromC: 0, rookToC: 3 });
         }
       }
 
@@ -1970,8 +2061,25 @@ export function initWizardChess() {
     }
 
     // =========================================================================
-    // Square Highlights
+    // Square Highlights (Reusing shared geometries and materials to eliminate GC and leaks)
     // =========================================================================
+    const sharedSelGeo = new THREE.RingGeometry(0.115, 0.155, 24);
+    sharedSelGeo.rotateX(-Math.PI / 2);
+    const sharedSelMat = new THREE.MeshBasicMaterial({ color: 0xf5d76e, side: THREE.DoubleSide });
+
+    const sharedCapGeo = new THREE.RingGeometry(0.12, 0.16, 24);
+    sharedCapGeo.rotateX(-Math.PI / 2);
+    const sharedCapMat = new THREE.MeshBasicMaterial({ color: 0xe63946, side: THREE.DoubleSide });
+
+    const sharedDotGeo = new THREE.CircleGeometry(0.06, 18);
+    sharedDotGeo.rotateX(-Math.PI / 2);
+    const sharedDotMat = new THREE.MeshBasicMaterial({
+      color: 0x4ea8de,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide
+    });
+
     function clearSquareHighlights() {
       while (squareHighlightsGroup.children.length > 0) {
         squareHighlightsGroup.remove(squareHighlightsGroup.children[0]);
@@ -1980,33 +2088,19 @@ export function initWizardChess() {
 
     function showSquareHighlights(r, c, moves) {
       clearSquareHighlights();
-      const selGeo = new THREE.RingGeometry(0.115, 0.155, 32);
-      selGeo.rotateX(-Math.PI / 2);
-      const selMat = new THREE.MeshBasicMaterial({ color: 0xf5d76e, side: THREE.DoubleSide });
-      const selMesh = new THREE.Mesh(selGeo, selMat);
-      const selPos = boardToWorld(r, c);
+      const selMesh = new THREE.Mesh(sharedSelGeo, sharedSelMat);
+      const selPos = getBoardWorldPosRef(r, c);
       selMesh.position.set(selPos.x, BOARD_SURFACE_Y + 0.01, selPos.z);
       squareHighlightsGroup.add(selMesh);
 
       for (const m of moves) {
-        const pos = boardToWorld(m.r, m.c);
+        const pos = getBoardWorldPosRef(m.r, m.c);
         if (m.capture) {
-          const capGeo = new THREE.RingGeometry(0.12, 0.16, 32);
-          capGeo.rotateX(-Math.PI / 2);
-          const capMat = new THREE.MeshBasicMaterial({ color: 0xe63946, side: THREE.DoubleSide });
-          const capMesh = new THREE.Mesh(capGeo, capMat);
+          const capMesh = new THREE.Mesh(sharedCapGeo, sharedCapMat);
           capMesh.position.set(pos.x, BOARD_SURFACE_Y + 0.012, pos.z);
           squareHighlightsGroup.add(capMesh);
         } else {
-          const dotGeo = new THREE.CircleGeometry(0.06, 24);
-          dotGeo.rotateX(-Math.PI / 2);
-          const dotMat = new THREE.MeshBasicMaterial({
-            color: 0x4ea8de,
-            transparent: true,
-            opacity: 0.85,
-            side: THREE.DoubleSide
-          });
-          const dotMesh = new THREE.Mesh(dotGeo, dotMat);
+          const dotMesh = new THREE.Mesh(sharedDotGeo, sharedDotMat);
           dotMesh.position.set(pos.x, BOARD_SURFACE_Y + 0.01, pos.z);
           squareHighlightsGroup.add(dotMesh);
         }
@@ -2079,7 +2173,7 @@ export function initWizardChess() {
         return false;
       }
 
-      if (!options.fromRemote) {
+      if (!options.fromRemote && !options.skipValidation) {
         const legalForPiece = getLegalMovesForPiece(fromR, fromC);
         if (!legalForPiece.some((m) => m.r === toR && m.c === toC)) {
           return false;
@@ -2148,8 +2242,8 @@ export function initWizardChess() {
         });
       }
 
-      const startPos = boardToWorld(fromR, fromC);
-      const endPos = boardToWorld(toR, toC);
+      const startPos = getBoardWorldPosRef(fromR, fromC);
+      const endPos = getBoardWorldPosRef(toR, toC);
       const dx = endPos.x - startPos.x;
       const dz = endPos.z - startPos.z;
       const dist = Math.hypot(dx, dz) || 1;
@@ -2164,8 +2258,8 @@ export function initWizardChess() {
       const castleRookFromC = isCastling ? (toC > fromC ? 7 : 0) : -1;
       const castleRookToC = isCastling ? (toC > fromC ? 5 : 3) : -1;
       const castleRook = isCastling ? boardState[fromR][castleRookFromC] : null;
-      const castleRookStartPos = castleRook ? boardToWorld(fromR, castleRookFromC) : null;
-      const castleRookEndPos = castleRook ? boardToWorld(fromR, castleRookToC) : null;
+      const castleRookStartPos = castleRook ? getBoardWorldPosRef(fromR, castleRookFromC) : null;
+      const castleRookEndPos = castleRook ? getBoardWorldPosRef(fromR, castleRookToC) : null;
       if (castleRook && castleRook.mesh) {
         const rDx = castleRookEndPos.x - castleRookStartPos.x;
         const rDz = castleRookEndPos.z - castleRookStartPos.z;
@@ -2194,7 +2288,7 @@ export function initWizardChess() {
           if (other && other !== piece && other !== captured && other.mesh) {
             bystanders.push({
               piece: other,
-              homePos: boardToWorld(r, c),
+              homePos: getBoardWorldPosRef(r, c),
               height: PIECE_HEIGHTS[other.type] || 0.45
             });
           }
@@ -2280,6 +2374,13 @@ export function initWizardChess() {
           const hz = b.homePos.z;
           const dHomeX = bx - hx;
           const dHomeZ = bz - hz;
+
+          // Quick Manhattan rejection: non-adjacent bystanders cannot collide
+          if (Math.abs(dHomeX) > 0.42 || Math.abs(dHomeZ) > 0.42) {
+            b.piece.mesh.position.copy(b.homePos);
+            continue;
+          }
+
           const dHome = Math.hypot(dHomeX, dHomeZ);
 
           // If the moving piece is already vertically above this bystander's top + 2.5cm margin, no horizontal push needed
@@ -2427,24 +2528,26 @@ export function initWizardChess() {
         cameraTelemetry.lastSpaceMoveSamples = [];
       }
 
-      // Distance-scaled piece movement duration (slowed by ~12-18% + scaled per square so 4-5 space Bishop/Rook/Queen glides feel weighty and unhurried):
-      // - 1 square move: 0.64s
-      // - 4-5 square move: 1.10s - 1.29s
+      // Distance-scaled piece movement duration:
+      // - 1 square move: 0.38s (fast, responsive, smooth)
+      // - 2 squares: 0.43s
+      // - 4 squares: 0.53s
+      // - 7 squares: 0.68s
       const squaresMoved = Math.max(1, Math.hypot(toR - fromR, toC - fromC));
-      const stdMoveDuration = Number((0.64 + Math.max(0, squaresMoved - 1) * 0.14).toFixed(3));
+      const stdMoveDuration = Number((0.38 + Math.max(0, squaresMoved - 1) * 0.05).toFixed(3));
       const atkProfile = ATTACK_SYNC_PROFILES[piece.type] || ATTACK_SYNC_PROFILES.queen;
       const SWING_START_CLIP_TIME = atkProfile.swingStartClip;
       const CONTACT_CLIP_TIME = atkProfile.contactClip; // Weapon physically strikes defender, triggering flash & flinch
       const BLOW_CLIP_TIME = atkProfile.blowClip;       // After visible weapon impact, defender explodes into stone shards
       const tApproach = isCapture
-        ? Number((0.66 + Math.max(0, squaresMoved - 1) * 0.125).toFixed(3))
+        ? Number((0.38 + Math.max(0, squaresMoved - 1) * 0.045).toFixed(3))
         : stdMoveDuration;
       const tContact = isCapture ? (tApproach + CONTACT_CLIP_TIME / atkProfile.timeScale) : stdMoveDuration;
       const tImpact = isCapture ? (tApproach + BLOW_CLIP_TIME / atkProfile.timeScale) : stdMoveDuration;
-      const tStrikeDone = isCapture ? (tImpact + 0.48) : stdMoveDuration;
-      // Slower, distance-aware post-attack camera return (~1.30s - 1.60s instead of 0.64s)
+      const tStrikeDone = isCapture ? (tImpact + 0.32) : stdMoveDuration;
+      // Swift, cinematic post-attack camera return (~0.58s - 0.72s instead of 1.60s)
       const camReturnDist = savedCamPos.distanceTo(duelCamClose);
-      const returnDuration = isCapture ? Number((1.18 + Math.min(0.42, camReturnDist * 0.10)).toFixed(3)) : 0;
+      const returnDuration = isCapture ? Number((0.58 + Math.min(0.18, camReturnDist * 0.05)).toFixed(3)) : 0;
       const totalDuration = isCapture ? (tStrikeDone + returnDuration) : stdMoveDuration;
 
       if (!isCapture) {
@@ -2516,6 +2619,10 @@ export function initWizardChess() {
           orbitControls.update();
         }
 
+        if (typeof updateRaycastTargets === 'function') {
+          updateRaycastTargets();
+        }
+
         currentTurn = currentTurn === 'w' ? 'b' : 'w';
         isAnimatingMove = false;
         updateTurnUI();
@@ -2538,16 +2645,18 @@ export function initWizardChess() {
           }
           const pDelta = piece.mesh.position.distanceTo(prevPiecePos);
           prevPiecePos.copy(piece.mesh.position);
-          cameraTelemetry.lastSpaceMoveSamples.push({
-            t: Number(elapsed.toFixed(3)),
-            u: Number(u.toFixed(3)),
-            piecePos: [
-              Number(piece.mesh.position.x.toFixed(3)),
-              Number(piece.mesh.position.y.toFixed(3)),
-              Number(piece.mesh.position.z.toFixed(3))
-            ],
-            pieceStep: Number(pDelta.toFixed(4))
-          });
+          if (window.__wizardChessTelemetry?.recordSamples) {
+            cameraTelemetry.lastSpaceMoveSamples.push({
+              t: Number(elapsed.toFixed(3)),
+              u: Number(u.toFixed(3)),
+              piecePos: [
+                Number(piece.mesh.position.x.toFixed(3)),
+                Number(piece.mesh.position.y.toFixed(3)),
+                Number(piece.mesh.position.z.toFixed(3))
+              ],
+              pieceStep: Number(pDelta.toFixed(4))
+            });
+          }
           if (u >= 1) {
             finishMove();
             return true;
@@ -2664,6 +2773,11 @@ export function initWizardChess() {
                 const shatterOrigin = captured.mesh.position.clone();
                 scene.remove(captured.mesh);
                 spawnStoneShatter(shatterOrigin, captured.color);
+                if (captured.mixer) {
+                  captured.mixer.stopAllAction();
+                  const mixIdx = activeMixers.indexOf(captured.mixer);
+                  if (mixIdx !== -1) activeMixers.splice(mixIdx, 1);
+                }
               }
             }
 
@@ -2705,27 +2819,29 @@ export function initWizardChess() {
         prevCamPos.copy(camera.position);
         prevPiecePos.copy(piece.mesh.position);
 
-        cameraTelemetry.lastAttackSamples.push({
-          t: Number(elapsed.toFixed(3)),
-          phase: phaseName,
-          camStep: Number(stepDelta.toFixed(4)),
-          pieceStep: Number(pieceStepDelta.toFixed(4)),
-          pos: [
-            Number(camera.position.x.toFixed(3)),
-            Number(camera.position.y.toFixed(3)),
-            Number(camera.position.z.toFixed(3))
-          ],
-          target: [
-            Number(orbitControls.target.x.toFixed(3)),
-            Number(orbitControls.target.y.toFixed(3)),
-            Number(orbitControls.target.z.toFixed(3))
-          ],
-          piecePos: [
-            Number(piece.mesh.position.x.toFixed(3)),
-            Number(piece.mesh.position.y.toFixed(3)),
-            Number(piece.mesh.position.z.toFixed(3))
-          ]
-        });
+        if (window.__wizardChessTelemetry?.recordSamples) {
+          cameraTelemetry.lastAttackSamples.push({
+            t: Number(elapsed.toFixed(3)),
+            phase: phaseName,
+            camStep: Number(stepDelta.toFixed(4)),
+            pieceStep: Number(pieceStepDelta.toFixed(4)),
+            pos: [
+              Number(camera.position.x.toFixed(3)),
+              Number(camera.position.y.toFixed(3)),
+              Number(camera.position.z.toFixed(3))
+            ],
+            target: [
+              Number(orbitControls.target.x.toFixed(3)),
+              Number(orbitControls.target.y.toFixed(3)),
+              Number(orbitControls.target.z.toFixed(3))
+            ],
+            piecePos: [
+              Number(piece.mesh.position.x.toFixed(3)),
+              Number(piece.mesh.position.y.toFixed(3)),
+              Number(piece.mesh.position.z.toFixed(3))
+            ]
+          });
+        }
 
         if (elapsed >= totalDuration) {
           finishMove();
@@ -2778,17 +2894,8 @@ export function initWizardChess() {
           score += 45;
         }
         // Check if opponent can recapture on destination square
-        for (let rr = 0; rr < 8; rr++) {
-          for (let cc = 0; cc < 8; cc++) {
-            const opp = boardState[rr][cc];
-            if (opp && opp.color === oppColor) {
-              const oppMoves = getPseudoMovesForPiece(rr, cc, boardState);
-              if (oppMoves.some((om) => om.r === m.toR && om.c === m.toC)) {
-                score -= PIECE_VALUES[piece.type] * 0.75;
-                break;
-              }
-            }
-          }
+        if (isSquareAttacked(m.toR, m.toC, oppColor, boardState)) {
+          score -= PIECE_VALUES[piece.type] * 0.75;
         }
         boardState[m.fromR][m.fromC] = piece;
         boardState[m.toR][m.toC] = target;
@@ -2836,7 +2943,7 @@ export function initWizardChess() {
           ) {
             triggerAIMoveNow();
           }
-        }, 540);
+        }, 240);
       }
     }
 
@@ -3721,8 +3828,24 @@ export function initWizardChess() {
     // Raycasting & Board Interaction
     // =========================================================================
     const raycaster = new THREE.Raycaster();
+    raycaster.firstHitOnly = true;
     const pointer = new THREE.Vector2();
     let pointerDownPos = { x: 0, y: 0 };
+
+    const activePieceMeshes = [];
+    const allRaycastTargets = [];
+
+    function updateRaycastTargets() {
+      activePieceMeshes.length = 0;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = boardState[r][c];
+          if (p && p.mesh) activePieceMeshes.push(p.mesh);
+        }
+      }
+      allRaycastTargets.length = 0;
+      allRaycastTargets.push(...activePieceMeshes, ...boardSquareMeshes);
+    }
 
     renderer.domElement.addEventListener('pointerdown', (e) => {
       pointerDownPos = { x: e.clientX, y: e.clientY };
@@ -3730,7 +3853,8 @@ export function initWizardChess() {
 
     renderer.domElement.addEventListener('pointerup', (e) => {
       const moveDist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
-      if (moveDist > 6) return;
+      const maxTapDist = e.pointerType === 'touch' ? 14 : 7;
+      if (moveDist > maxTapDist) return;
       if (isAnimatingMove || gameOver) return;
 
       // Enforce turn ownership in Multiplayer, and in Single Player only block while AI auto-move timer is actively pending
@@ -3743,16 +3867,11 @@ export function initWizardChess() {
 
       raycaster.setFromCamera(pointer, camera);
 
-      const pieceMeshes = [];
-      for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-          if (boardState[r][c] && boardState[r][c].mesh) {
-            pieceMeshes.push(boardState[r][c].mesh);
-          }
-        }
+      if (allRaycastTargets.length === 0) {
+        updateRaycastTargets();
       }
 
-      const hits = raycaster.intersectObjects([...pieceMeshes, ...boardSquareMeshes], true);
+      const hits = raycaster.intersectObjects(allRaycastTargets, true);
       if (hits.length === 0) {
         if (preMoveHighlightTask) preMoveHighlightTask = null;
         clearSquareHighlights();
@@ -3792,7 +3911,7 @@ export function initWizardChess() {
             (m.castle && m.r === clickedR && m.rookFromC === clickedC)
         );
         if (move) {
-          executeChessMove(selectedSquare.r, selectedSquare.c, move.r, move.c);
+          executeChessMove(selectedSquare.r, selectedSquare.c, move.r, move.c, { skipValidation: true });
           return;
         }
       }
@@ -4692,10 +4811,22 @@ export function initWizardChess() {
     // =========================================================================
     // Main Animation Loop
     // =========================================================================
+    // Pre-allocated math helpers for zero-GC render loop
+    const _prevCamPos = new THREE.Vector3();
+    const _beforeMovePos = new THREE.Vector3();
+    const _actualMoveDelta = new THREE.Vector3();
+    const _camForward = new THREE.Vector3();
+    const _camRight = new THREE.Vector3();
+    const _horizDir = new THREE.Vector3();
+    const _desiredMoveVel = new THREE.Vector3();
+    const _moveDelta = new THREE.Vector3();
+    const _lookOffset = new THREE.Vector3();
+    const _newOffset = new THREE.Vector3();
+
     let elapsedTotal = 0;
     function stepScene(dt, doRender = true) {
       elapsedTotal += dt;
-      const prevCamPos = camera.position.clone();
+      _prevCamPos.copy(camera.position);
 
       for (const mixer of activeMixers) {
         mixer.update(dt);
@@ -4730,25 +4861,25 @@ export function initWizardChess() {
         const maxVertSpeed = 2.6 * moveSpeedScale; // 0.26 m/s at default 10%
         const maxRotSpeed = 1.2 * rotSpeedScale;   // 0.12 rad/s at default 10%
 
-        const forward = new THREE.Vector3().subVectors(orbitControls.target, camera.position);
-        forward.y = 0;
-        if (forward.lengthSq() < 1e-6) {
-          camera.getWorldDirection(forward);
-          forward.y = 0;
+        _camForward.subVectors(orbitControls.target, camera.position);
+        _camForward.y = 0;
+        if (_camForward.lengthSq() < 1e-6) {
+          camera.getWorldDirection(_camForward);
+          _camForward.y = 0;
         }
-        forward.normalize();
-        const right = new THREE.Vector3(-forward.z, 0, forward.x).normalize();
+        _camForward.normalize();
+        _camRight.set(-_camForward.z, 0, _camForward.x).normalize();
 
-        const horizDir = new THREE.Vector3(0, 0, 0);
-        if (heldCameraKeys.has('KeyW')) horizDir.add(forward);
-        if (heldCameraKeys.has('KeyS')) horizDir.sub(forward);
-        if (heldCameraKeys.has('KeyD')) horizDir.add(right);
-        if (heldCameraKeys.has('KeyA')) horizDir.sub(right);
-        if (horizDir.lengthSq() > 1e-6) horizDir.normalize();
+        _horizDir.set(0, 0, 0);
+        if (heldCameraKeys.has('KeyW')) _horizDir.add(_camForward);
+        if (heldCameraKeys.has('KeyS')) _horizDir.sub(_camForward);
+        if (heldCameraKeys.has('KeyD')) _horizDir.add(_camRight);
+        if (heldCameraKeys.has('KeyA')) _horizDir.sub(_camRight);
+        if (_horizDir.lengthSq() > 1e-6) _horizDir.normalize();
 
-        const desiredMoveVel = horizDir.multiplyScalar(maxMoveSpeed);
-        if (heldCameraKeys.has('KeyR')) desiredMoveVel.y += maxVertSpeed;
-        if (heldCameraKeys.has('KeyF')) desiredMoveVel.y -= maxVertSpeed;
+        _desiredMoveVel.copy(_horizDir).multiplyScalar(maxMoveSpeed);
+        if (heldCameraKeys.has('KeyR')) _desiredMoveVel.y += maxVertSpeed;
+        if (heldCameraKeys.has('KeyF')) _desiredMoveVel.y -= maxVertSpeed;
 
         let desiredYawVel = 0;
         let desiredPitchVel = 0;
@@ -4759,11 +4890,11 @@ export function initWizardChess() {
 
         // Smooth ease-in when keys are pressed and smooth ease-out when keys are released
         const easeAlpha = 1 - Math.exp(-Math.max(0.001, dt) * 7.5);
-        keyMoveVelocity.lerp(desiredMoveVel, easeAlpha);
+        keyMoveVelocity.lerp(_desiredMoveVel, easeAlpha);
         keyRotVelocity.yaw += (desiredYawVel - keyRotVelocity.yaw) * easeAlpha;
         keyRotVelocity.pitch += (desiredPitchVel - keyRotVelocity.pitch) * easeAlpha;
 
-        if (keyMoveVelocity.lengthSq() < 1e-8 && desiredMoveVel.lengthSq() === 0) {
+        if (keyMoveVelocity.lengthSq() < 1e-8 && _desiredMoveVel.lengthSq() === 0) {
           keyMoveVelocity.set(0, 0, 0);
         }
         if (Math.abs(keyRotVelocity.yaw) < 1e-5 && desiredYawVel === 0) keyRotVelocity.yaw = 0;
@@ -4776,18 +4907,18 @@ export function initWizardChess() {
           activeCamTransition = null;
 
           if (hasActiveMove) {
-            const moveDelta = keyMoveVelocity.clone().multiplyScalar(dt);
-            const beforeMovePos = camera.position.clone();
-            camera.position.add(moveDelta);
-            enforceCathedralBoundsAndSolidColumns(beforeMovePos, camera.position, orbitControls.target);
-            const actualMoveDelta = camera.position.clone().sub(beforeMovePos);
-            orbitControls.target.add(actualMoveDelta);
+            _moveDelta.copy(keyMoveVelocity).multiplyScalar(dt);
+            _beforeMovePos.copy(camera.position);
+            camera.position.add(_moveDelta);
+            enforceCathedralBoundsAndSolidColumns(_beforeMovePos, camera.position, orbitControls.target);
+            _actualMoveDelta.subVectors(camera.position, _beforeMovePos);
+            orbitControls.target.add(_actualMoveDelta);
           }
 
           if (hasActiveRot) {
-            const lookOffset = new THREE.Vector3().subVectors(orbitControls.target, camera.position);
-            const dist = Math.max(0.5, lookOffset.length());
-            const dir = lookOffset.normalize();
+            _lookOffset.subVectors(orbitControls.target, camera.position);
+            const dist = Math.max(0.5, _lookOffset.length());
+            const dir = _lookOffset.normalize();
             let yaw = Math.atan2(dir.x, dir.z);
             let pitch = Math.asin(Math.max(-0.98, Math.min(0.98, dir.y)));
 
@@ -4795,12 +4926,12 @@ export function initWizardChess() {
             pitch = Math.max(-1.35, Math.min(1.35, pitch + keyRotVelocity.pitch * dt));
 
             const cosP = Math.cos(pitch);
-            const newOffset = new THREE.Vector3(
+            _newOffset.set(
               Math.sin(yaw) * cosP * dist,
               Math.sin(pitch) * dist,
               Math.cos(yaw) * cosP * dist
             );
-            orbitControls.target.copy(camera.position).add(newOffset);
+            orbitControls.target.copy(camera.position).add(_newOffset);
           }
 
           if (heldCameraKeys.size > 0) {
@@ -4817,7 +4948,7 @@ export function initWizardChess() {
         const ease = easeInOutCubic(u);
         camera.position.lerpVectors(activeCamTransition.startPos, activeCamTransition.endPos, ease);
         orbitControls.target.lerpVectors(activeCamTransition.startTarget, activeCamTransition.endTarget, ease);
-        enforceCathedralBoundsAndSolidColumns(prevCamPos, camera.position, orbitControls.target);
+        enforceCathedralBoundsAndSolidColumns(_prevCamPos, camera.position, orbitControls.target);
         camera.lookAt(orbitControls.target);
         if (u >= 1) {
           activeCamTransition = null;
@@ -4825,10 +4956,10 @@ export function initWizardChess() {
         }
       } else if (orbitControls.enabled && !isAnimatingMove) {
         orbitControls.update();
-        enforceCathedralBoundsAndSolidColumns(prevCamPos, camera.position, orbitControls.target);
+        enforceCathedralBoundsAndSolidColumns(_prevCamPos, camera.position, orbitControls.target);
         camera.lookAt(orbitControls.target);
       } else if (isAnimatingMove) {
-        enforceCathedralBoundsAndSolidColumns(prevCamPos, camera.position, orbitControls.target);
+        enforceCathedralBoundsAndSolidColumns(_prevCamPos, camera.position, orbitControls.target);
         camera.lookAt(orbitControls.target);
       }
 
@@ -4854,12 +4985,15 @@ export function initWizardChess() {
         }
         // Bounce flying stone shards off intact pieces on the board so all statues feel solid
         if (d.mesh.position.y < BOARD_SURFACE_Y + 0.48) {
+          const dX = d.mesh.position.x;
+          const dZ = d.mesh.position.z;
           for (let r = 0; r < 8; r++) {
             for (let c = 0; c < 8; c++) {
               const p = boardState[r][c];
               if (p && p.mesh) {
-                const rx = d.mesh.position.x - p.mesh.position.x;
-                const rz = d.mesh.position.z - p.mesh.position.z;
+                const rx = dX - p.mesh.position.x;
+                const rz = dZ - p.mesh.position.z;
+                if (Math.abs(rx) > 0.17 || Math.abs(rz) > 0.17) continue;
                 const rDist = Math.hypot(rx, rz);
                 if (rDist < 0.165 && rDist > 0.0001) {
                   const nx = rx / rDist;
