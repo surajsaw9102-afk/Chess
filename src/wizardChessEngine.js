@@ -3852,6 +3852,44 @@ export function initWizardChess() {
       return true;
     }
 
+    // Draw rules: threefold repetition, the 50-move rule, and basic insufficient material.
+    function getPositionSignature(cells, turn, epTarget) {
+      return JSON.stringify({
+        turn,
+        ep: epTarget ? [epTarget.r, epTarget.c] : null,
+        cells: cells.map((row) => row.map((p) => p ? [p.type, p.color, Boolean(p.hasMoved)] : null))
+      });
+    }
+
+    function getDrawReason() {
+      const currentCells = boardState.map((row) =>
+        row.map((p) => p ? { type: p.type, color: p.color, hasMoved: Boolean(p.hasMoved) } : null)
+      );
+      const currentSignature = getPositionSignature(currentCells, currentTurn, enPassantTarget);
+      let repetitions = 1;
+      for (const entry of moveHistory) {
+        const snap = entry.snapshot;
+        if (snap && getPositionSignature(snap.cells, snap.currentTurn, snap.enPassantTarget) === currentSignature) {
+          repetitions += 1;
+          if (repetitions >= 3) return 'Draw — Threefold Repetition';
+        }
+      }
+      let quietHalfMoves = 0;
+      for (let i = moveHistory.length - 1; i >= 0; i--) {
+        const move = moveHistory[i].move;
+        if (!move || move.capture || move.pieceType === 'pawn') break;
+        quietHalfMoves += 1;
+      }
+      if (quietHalfMoves >= 100) return 'Draw — 50-Move Rule';
+      const pieces = currentCells.flat().filter(Boolean);
+      const nonKings = pieces.filter((p) => p.type !== 'king');
+      if (nonKings.length === 0) return 'Draw — Insufficient Material';
+      if (nonKings.length === 1 && ['bishop', 'knight'].includes(nonKings[0].type)) {
+        return 'Draw — Insufficient Material';
+      }
+      return null;
+    }
+
     // =========================================================================
     // UI & Turn Status Updates
     // =========================================================================
@@ -3898,15 +3936,21 @@ export function initWizardChess() {
           turnText.textContent = 'Stalemate — Draw';
         }
       } else {
-        const turnLabel = currentTurn === 'w' ? 'White to Move' : 'Black to Move';
-        const aiColor = playerColor === 'w' ? 'b' : 'w';
-        const isAiTurn = !scriptedGameActive && gameMode === 'single' && currentTurn === aiColor;
-        if (inCheck) {
-          turnText.textContent = `${turnLabel} (Check!)`;
-        } else if (isAiTurn) {
-          turnText.textContent = `${turnLabel} (AI)...`;
+        const drawReason = getDrawReason();
+        if (drawReason) {
+          gameOver = true;
+          turnText.textContent = drawReason;
         } else {
-          turnText.textContent = turnLabel;
+          const turnLabel = currentTurn === 'w' ? 'White to Move' : 'Black to Move';
+          const aiColor = playerColor === 'w' ? 'b' : 'w';
+          const isAiTurn = !scriptedGameActive && gameMode === 'single' && currentTurn === aiColor;
+          if (inCheck) {
+            turnText.textContent = `${turnLabel} (Check!)`;
+          } else if (isAiTurn) {
+            turnText.textContent = `${turnLabel} (AI)...`;
+          } else {
+            turnText.textContent = turnLabel;
+          }
         }
       }
 
