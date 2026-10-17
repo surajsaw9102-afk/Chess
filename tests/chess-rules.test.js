@@ -45,9 +45,9 @@ test('threefold repetition is detected', () => {
 });
 
 test('the 50-move rule and insufficient material are detected', () => {
-  const fiftyMove = new Chess('8/8/8/8/8/8/4K3/4k3 w - - 100 51');
+  const fiftyMove = new Chess('4k3/8/8/8/8/8/8/4K3 w - - 100 51');
   assert.equal(fiftyMove.isDrawByFiftyMoves(), true);
-  const insufficient = new Chess('8/8/8/8/8/8/4K3/3Nk3 w - - 0 1');
+  const insufficient = new Chess('8/8/8/8/8/4K3/8/3Nk3 w - - 0 1');
   assert.equal(insufficient.isInsufficientMaterial(), true);
 });
 
