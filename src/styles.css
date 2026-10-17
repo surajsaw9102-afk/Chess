@@ -859,3 +859,120 @@ body,
     line-height: 1.5;
   }
 }
+
+
+/* Mobile control fit fix: keep every label inside its button on narrow phones. */
+@media (max-width: 768px) {
+  #hud-right {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    max-height: 82dvh;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  #hud-right .hud-btn {
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    line-height: 1.25;
+    letter-spacing: 0.01em;
+    padding: 9px 6px;
+    gap: 4px;
+    text-wrap: balance;
+  }
+
+  /* Action and display controls use predictable two-column rows. */
+  #btn-mode-toggle,
+  #btn-side-toggle,
+  #btn-ai-move,
+  #btn-ai-difficulty,
+  #btn-hint-move,
+  #btn-reset,
+  #btn-graphics-quality {
+    grid-column: span 3;
+  }
+
+  #btn-mode-toggle {
+    grid-column: span 6;
+  }
+
+  #btn-cam-player,
+  #btn-cam-top,
+  #btn-cam-side,
+  #btn-cam-wide {
+    grid-column: span 3;
+  }
+
+  #btn-hide-ui {
+    grid-column: span 6;
+  }
+
+  .mobile-sheet-section-label,
+  .mobile-sheet-header,
+  .mobile-sheet-handle-wrap,
+  .mobile-sheet-hint {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .mobile-sheet-section-sub {
+    min-width: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .checkmate-actions {
+    min-width: 0;
+  }
+
+  .checkmate-btn {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.25;
+  }
+}
+
+@media (max-width: 380px) {
+  #hud-right {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  #hud-right .hud-btn {
+    grid-column: span 1;
+    font-size: 0.76rem;
+    padding: 9px 5px;
+  }
+
+  #btn-mode-toggle,
+  #btn-hide-ui,
+  #hud-right .mobile-sheet-handle-wrap,
+  #hud-right .mobile-sheet-header,
+  #hud-right .mobile-sheet-section-label,
+  #hud-right .mobile-sheet-hint {
+    grid-column: span 2;
+  }
+
+  #btn-side-toggle,
+  #btn-ai-move,
+  #btn-ai-difficulty,
+  #btn-hint-move,
+  #btn-reset,
+  #btn-graphics-quality,
+  #btn-cam-player,
+  #btn-cam-top,
+  #btn-cam-side,
+  #btn-cam-wide {
+    grid-column: span 1;
+  }
+
+  .mobile-sheet-section-sub {
+    font-size: 0.62rem;
+    max-width: 58%;
+  }
+}
