@@ -73,16 +73,41 @@ export function initWizardChess() {
     });
     // Mobile-first rendering: DPR is a major fill-rate cost on phone GPUs.
     // Avoid near-native 3x rendering on phones while preserving detail on capable devices.
+    let graphicsQuality = 'auto';
+    try {
+      const savedQuality = localStorage.getItem('wizard_chess_graphics_quality');
+      if (savedQuality === 'smooth' || savedQuality === 'high') graphicsQuality = savedQuality;
+    } catch (_) {}
+
     const getRenderPixelRatio = () => {
       const dpr = window.devicePixelRatio || 1;
       const cores = navigator.hardwareConcurrency || 4;
       const memory = navigator.deviceMemory || 4;
+      if (graphicsQuality === 'smooth') return Math.min(dpr, isMobileDevice ? 0.9 : 1.25);
+      if (graphicsQuality === 'high') return Math.min(dpr, isMobileDevice ? 1.5 : 2);
       if (isMobileDevice) {
         const lowEndDevice = cores <= 4 || memory <= 4;
         return Math.min(dpr, lowEndDevice ? 1.1 : 1.35);
       }
       return Math.min(dpr, 1.75);
     };
+
+    function setGraphicsQuality(quality) {
+      graphicsQuality = ['auto', 'smooth', 'high'].includes(quality) ? quality : 'auto';
+      try {
+        localStorage.setItem('wizard_chess_graphics_quality', graphicsQuality);
+      } catch (_) {}
+      renderer.setPixelRatio(getRenderPixelRatio());
+      renderer.shadowMap.enabled = graphicsQuality !== 'smooth';
+      renderer.shadowMap.needsUpdate = true;
+      const button = document.getElementById('btn-graphics-quality');
+      if (button) {
+        button.textContent = `Graphics: ${graphicsQuality.charAt(0).toUpperCase() + graphicsQuality.slice(1)}`;
+        button.setAttribute('aria-label', `Graphics quality: ${graphicsQuality}. Tap to change`);
+      }
+      renderer.render(scene, camera);
+      return graphicsQuality;
+    }
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(getRenderPixelRatio());
     renderer.shadowMap.enabled = true;
@@ -2926,6 +2951,28 @@ export function initWizardChess() {
       return bestCandidates[Math.floor(Math.random() * bestCandidates.length)] || legalMoves[0];
     }
 
+    function showHintMove() {
+      if (isAnimatingMove || gameOver) return false;
+      const chosen = chooseSmartAIMove(currentTurn);
+      if (!chosen) return false;
+      const piece = boardState[chosen.fromR][chosen.fromC];
+      const move = {
+        r: chosen.toR,
+        c: chosen.toC,
+        capture: Boolean(chosen.capture)
+      };
+      showSquareHighlights(chosen.fromR, chosen.fromC, [move]);
+      const turnText = document.getElementById('turn-text');
+      if (turnText) {
+        const files = 'abcdefgh';
+        const from = `${files[chosen.fromC]}${8 - chosen.fromR}`;
+        const to = `${files[chosen.toC]}${8 - chosen.toR}`;
+        turnText.textContent = `Hint: ${piece?.type || 'Piece'} ${from} → ${to}`;
+      }
+      renderer.render(scene, camera);
+      return { fromR: chosen.fromR, fromC: chosen.fromC, toR: chosen.toR, toC: chosen.toC };
+    }
+
     function triggerAIMoveNow() {
       if (isAnimatingMove || gameOver) return false;
       if (gameMode === 'local') return false;
@@ -4597,6 +4644,8 @@ export function initWizardChess() {
       },
       executeChessMove,
       triggerAIMoveNow,
+      showHintMove,
+      setGraphicsQuality,
       resetChessBoard,
       openLobbyModal,
       closeLobbyModal,
@@ -4851,6 +4900,19 @@ export function initWizardChess() {
         return res.json();
       }
     };
+
+    const graphicsQualityButton = document.getElementById('btn-graphics-quality');
+    if (graphicsQualityButton) {
+      graphicsQualityButton.addEventListener('click', () => {
+        const modes = ['auto', 'smooth', 'high'];
+        const next = modes[(modes.indexOf(graphicsQuality) + 1) % modes.length];
+        setGraphicsQuality(next);
+      });
+      setGraphicsQuality(graphicsQuality);
+    }
+
+    const hintButton = document.getElementById('btn-hint-move');
+    if (hintButton) hintButton.addEventListener('click', showHintMove);
 
     window.wizardChess.stepBy = (seconds, steps = 24) => {
       const subDt = seconds / steps;
