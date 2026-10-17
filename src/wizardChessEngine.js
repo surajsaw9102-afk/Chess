@@ -3840,6 +3840,23 @@ export function initWizardChess() {
       const btnSideToggle = document.getElementById('btn-side-toggle');
       const roomPill = document.getElementById('room-pill');
       const capturedTray = document.getElementById('captured-tray');
+      const moveHistoryTray = document.getElementById('move-history-tray');
+
+      if (moveHistoryTray) {
+        const start = Math.max(0, moveHistory.length - 8);
+        const files = 'abcdefgh';
+        const recentMoves = moveHistory.slice(start).map((entry, index) => {
+          const move = entry.move;
+          const ply = start + index;
+          const from = `${files[move.fromC]}${8 - move.fromR}`;
+          const to = `${files[move.toC]}${8 - move.toR}`;
+          const moveNumber = Math.floor(ply / 2) + 1;
+          const prefix = move.color === 'w' ? `${moveNumber}. ` : '';
+          return `${prefix}${from}${move.capture ? '×' : '–'}${to}`;
+        });
+        moveHistoryTray.textContent = recentMoves.length ? `Recent: ${recentMoves.join('  ')}` : 'Moves: —';
+        moveHistoryTray.title = `Showing the last ${recentMoves.length} plies`;
+      }
 
       turnDot.className = 'turn-dot' + (currentTurn === 'b' ? ' black' : '');
 
