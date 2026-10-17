@@ -154,6 +154,14 @@ export default function App() {
           </button>
           <button
             className="hud-btn"
+            id="btn-hint-move"
+            title="Show a suggested legal move without playing it"
+            onClick={() => setMobileSheetOpen(false)}
+          >
+            Suggest Move
+          </button>
+          <button
+            className="hud-btn"
             id="btn-reset"
             title="Start a fresh game on the altar"
             onClick={() => setMobileSheetOpen(false)}
