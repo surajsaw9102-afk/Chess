@@ -243,6 +243,7 @@ export default function App() {
           <strong>Controls:</strong> Click Piece to Move &nbsp;•&nbsp; Left-Drag: Orbit &nbsp;•&nbsp; Right-Drag: Pan &nbsp;•&nbsp; Scroll: Zoom &nbsp;•&nbsp; WASD + R/F: Fly Cam &nbsp;•&nbsp; H: Hide UI
         </div>
         <div className="captured-pill" id="captured-tray"></div>
+        <div className="move-history-pill" id="move-history-tray" aria-live="polite">Moves: —</div>
       </div>
 
       <div id="checkmate-overlay" role="status" aria-live="polite">
