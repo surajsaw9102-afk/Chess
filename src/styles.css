@@ -757,3 +757,66 @@ body.cinematic-ui-hidden #hud-bottom {
   }
 }
 
+
+
+/* Phone polish: respect notches, dynamic browser chrome and reduced-motion preferences. */
+html,
+body,
+#root {
+  min-height: 100%;
+  height: 100dvh;
+}
+
+#canvas-container {
+  height: 100dvh;
+}
+
+#hud-top {
+  top: calc(12px + env(safe-area-inset-top, 0px));
+}
+
+#hud-bottom {
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+}
+
+.hud-btn,
+.checkmate-btn,
+.mobile-sheet-close {
+  min-height: 40px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.hud-btn:focus-visible,
+.checkmate-btn:focus-visible,
+.mobile-sheet-close:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 3px;
+}
+
+@media (max-width: 768px) {
+  #hud-top {
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+  }
+
+  #hud-bottom {
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+  }
+
+  .hud-btn {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
