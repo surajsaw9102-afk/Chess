@@ -1499,6 +1499,8 @@ export function initWizardChess() {
     // =========================================================================
     let boardState = Array.from({ length: 8 }, () => Array(8).fill(null));
     let currentTurn = 'w';
+    // Destination square available for an en-passant capture after a two-square pawn move.
+    let enPassantTarget = null;
     let selectedSquare = null;
     let validMoves = [];
     let isAnimatingMove = false;
@@ -1738,6 +1740,7 @@ export function initWizardChess() {
     function captureBoardSnapshot() {
       return {
         currentTurn,
+        enPassantTarget: enPassantTarget ? { ...enPassantTarget } : null,
         gameOver,
         capturedByWhite,
         capturedByBlack,
@@ -1779,6 +1782,7 @@ export function initWizardChess() {
       validMoves = [];
       isAnimatingMove = false;
       currentTurn = snap.currentTurn;
+      enPassantTarget = snap.enPassantTarget ? { ...snap.enPassantTarget } : null;
       gameOver = snap.gameOver;
       capturedByWhite = snap.capturedByWhite;
       capturedByBlack = snap.capturedByBlack;
@@ -1900,6 +1904,13 @@ export function initWizardChess() {
             const target = board[r + dir][c + dc];
             if (target && target.color !== color) {
               moves.push({ r: r + dir, c: c + dc, capture: true });
+            } else if (
+              !target && enPassantTarget &&
+              enPassantTarget.r === r + dir && enPassantTarget.c === c + dc &&
+              board[r][c + dc] && board[r][c + dc].type === 'pawn' &&
+              board[r][c + dc].color !== color
+            ) {
+              moves.push({ r: r + dir, c: c + dc, capture: true, enPassant: true });
             }
           }
         }
@@ -2034,11 +2045,14 @@ export function initWizardChess() {
       const legal = [];
       for (const m of pseudo) {
         const savedTarget = boardState[m.r][m.c];
+        const enPassantVictim = m.enPassant ? boardState[r][m.c] : null;
+        if (m.enPassant) boardState[r][m.c] = null;
         boardState[m.r][m.c] = piece;
         boardState[r][c] = null;
         const inCheck = isKingInCheck(piece.color, boardState);
         boardState[r][c] = piece;
         boardState[m.r][m.c] = savedTarget;
+        if (m.enPassant) boardState[r][m.c] = enPassantVictim;
         if (!inCheck) legal.push(m);
       }
 
@@ -2210,6 +2224,11 @@ export function initWizardChess() {
       if (piece.color !== currentTurn) return false;
 
       const targetOnDest = boardState[toR]?.[toC];
+      const enPassantCapture = piece.type === 'pawn' && !targetOnDest && enPassantTarget &&
+        enPassantTarget.r === toR && enPassantTarget.c === toC &&
+        boardState[fromR]?.[toC]?.type === 'pawn' &&
+        boardState[fromR][toC].color !== piece.color
+        ? boardState[fromR][toC] : null;
       // Strictly forbid friendly fire (a piece can never move onto or attack a piece of the same color)
       if (targetOnDest && targetOnDest.color === piece.color) {
         return false;
@@ -2236,7 +2255,7 @@ export function initWizardChess() {
           fromC,
           toR,
           toC,
-          capture: Boolean(targetOnDest),
+          capture: Boolean(targetOnDest || enPassantCapture),
           promotion: options.promotion || 'queen'
         }
       });
@@ -2265,7 +2284,7 @@ export function initWizardChess() {
       }
       if (typeof updateScriptBarUI === 'function') updateScriptBarUI();
 
-      const captured = targetOnDest;
+      const captured = targetOnDest || enPassantCapture;
       const isCapture = Boolean(captured);
       isAnimatingMove = true;
       activeCamTransition = null;
@@ -2620,6 +2639,7 @@ export function initWizardChess() {
 
       function finishMove() {
         resetBystandersToHome();
+        if (enPassantCapture) boardState[fromR][toC] = null;
         boardState[fromR][fromC] = null;
         boardState[toR][toC] = piece;
         piece.r = toR;
@@ -2665,6 +2685,9 @@ export function initWizardChess() {
           updateRaycastTargets();
         }
 
+        enPassantTarget = piece.type === 'pawn' && Math.abs(toR - fromR) === 2
+          ? { r: (toR + fromR) / 2, c: fromC }
+          : null;
         currentTurn = currentTurn === 'w' ? 'b' : 'w';
         isAnimatingMove = false;
         updateTurnUI();
@@ -3829,6 +3852,44 @@ export function initWizardChess() {
       return true;
     }
 
+    // Draw rules: threefold repetition, the 50-move rule, and basic insufficient material.
+    function getPositionSignature(cells, turn, epTarget) {
+      return JSON.stringify({
+        turn,
+        ep: epTarget ? [epTarget.r, epTarget.c] : null,
+        cells: cells.map((row) => row.map((p) => p ? [p.type, p.color, Boolean(p.hasMoved)] : null))
+      });
+    }
+
+    function getDrawReason() {
+      const currentCells = boardState.map((row) =>
+        row.map((p) => p ? { type: p.type, color: p.color, hasMoved: Boolean(p.hasMoved) } : null)
+      );
+      const currentSignature = getPositionSignature(currentCells, currentTurn, enPassantTarget);
+      let repetitions = 1;
+      for (const entry of moveHistory) {
+        const snap = entry.snapshot;
+        if (snap && getPositionSignature(snap.cells, snap.currentTurn, snap.enPassantTarget) === currentSignature) {
+          repetitions += 1;
+          if (repetitions >= 3) return 'Draw — Threefold Repetition';
+        }
+      }
+      let quietHalfMoves = 0;
+      for (let i = moveHistory.length - 1; i >= 0; i--) {
+        const move = moveHistory[i].move;
+        if (!move || move.capture || move.pieceType === 'pawn') break;
+        quietHalfMoves += 1;
+      }
+      if (quietHalfMoves >= 100) return 'Draw — 50-Move Rule';
+      const pieces = currentCells.flat().filter(Boolean);
+      const nonKings = pieces.filter((p) => p.type !== 'king');
+      if (nonKings.length === 0) return 'Draw — Insufficient Material';
+      if (nonKings.length === 1 && ['bishop', 'knight'].includes(nonKings[0].type)) {
+        return 'Draw — Insufficient Material';
+      }
+      return null;
+    }
+
     // =========================================================================
     // UI & Turn Status Updates
     // =========================================================================
@@ -3875,15 +3936,21 @@ export function initWizardChess() {
           turnText.textContent = 'Stalemate — Draw';
         }
       } else {
-        const turnLabel = currentTurn === 'w' ? 'White to Move' : 'Black to Move';
-        const aiColor = playerColor === 'w' ? 'b' : 'w';
-        const isAiTurn = !scriptedGameActive && gameMode === 'single' && currentTurn === aiColor;
-        if (inCheck) {
-          turnText.textContent = `${turnLabel} (Check!)`;
-        } else if (isAiTurn) {
-          turnText.textContent = `${turnLabel} (AI)...`;
+        const drawReason = getDrawReason();
+        if (drawReason) {
+          gameOver = true;
+          turnText.textContent = drawReason;
         } else {
-          turnText.textContent = turnLabel;
+          const turnLabel = currentTurn === 'w' ? 'White to Move' : 'Black to Move';
+          const aiColor = playerColor === 'w' ? 'b' : 'w';
+          const isAiTurn = !scriptedGameActive && gameMode === 'single' && currentTurn === aiColor;
+          if (inCheck) {
+            turnText.textContent = `${turnLabel} (Check!)`;
+          } else if (isAiTurn) {
+            turnText.textContent = `${turnLabel} (AI)...`;
+          } else {
+            turnText.textContent = turnLabel;
+          }
         }
       }
 

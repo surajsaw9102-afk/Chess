@@ -34,6 +34,9 @@ jobs:
       - name: Type-check TypeScript
         run: npm run lint
 
+      - name: Run chess rules regression tests
+        run: npm test
+
       - name: Build web app
         run: npm run build
 
