@@ -201,6 +201,14 @@ export default function App() {
 
           <button
             className="hud-btn"
+            id="btn-graphics-quality"
+            title="Cycle Auto, Smooth and High graphics quality to balance visuals, heat and battery"
+          >
+            Graphics: Auto
+          </button>
+
+          <button
+            className="hud-btn"
             id="btn-hide-ui"
             title="Toggle HUD visibility (Shortcut: H)"
             onClick={() => setMobileSheetOpen(false)}
