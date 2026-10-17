@@ -1509,6 +1509,11 @@ export function initWizardChess() {
     // Mode & Player Configuration
     let gameMode = 'single'; // 'single' | 'multi'
     let playerColor = 'w';   // 'w' | 'b' | 'spectator'
+    let aiDifficulty = 'medium';
+    try {
+      const savedDifficulty = localStorage.getItem('wizard_chess_ai_difficulty');
+      if (['easy', 'medium', 'hard'].includes(savedDifficulty)) aiDifficulty = savedDifficulty;
+    } catch (_) {}
     let aiAutoPlay = true;
     let aiTimer = null;
 
@@ -2899,6 +2904,9 @@ export function initWizardChess() {
     function chooseSmartAIMove(color) {
       const legalMoves = getAllLegalMoves(color);
       if (legalMoves.length === 0) return null;
+      if (aiDifficulty === 'easy') {
+        return legalMoves[Math.floor(Math.random() * legalMoves.length)];
+      }
 
       let bestScore = -Infinity;
       let bestCandidates = [];
@@ -2910,17 +2918,17 @@ export function initWizardChess() {
 
         // Material gain on capture
         if (target) {
-          score += PIECE_VALUES[target.type] * 1.15 - PIECE_VALUES[piece.type] * 0.08;
+          score += PIECE_VALUES[target.type] * (aiDifficulty === 'hard' ? 1.35 : 1.15) - PIECE_VALUES[piece.type] * 0.08;
         }
 
         // Center control bonus
         const centerDist = Math.abs(3.5 - m.toR) + Math.abs(3.5 - m.toC);
-        score += (7 - centerDist) * 8;
+        score += (7 - centerDist) * (aiDifficulty === 'hard' ? 5 : 8);
 
         // Pawn advancement bonus
         if (piece.type === 'pawn') {
           const advance = color === 'w' ? (6 - m.toR) : (m.toR - 1);
-          score += advance * 12;
+          score += advance * (aiDifficulty === 'hard' ? 8 : 12);
         }
 
         // Simulate move to check if destination is hanging or gives check
@@ -2928,17 +2936,17 @@ export function initWizardChess() {
         boardState[m.fromR][m.fromC] = null;
         const oppColor = color === 'w' ? 'b' : 'w';
         if (isKingInCheck(oppColor, boardState)) {
-          score += 45;
+          score += aiDifficulty === 'hard' ? 85 : 45;
         }
         // Check if opponent can recapture on destination square
         if (isSquareAttacked(m.toR, m.toC, oppColor, boardState)) {
-          score -= PIECE_VALUES[piece.type] * 0.75;
+          score -= PIECE_VALUES[piece.type] * (aiDifficulty === 'hard' ? 1.15 : 0.75);
         }
         boardState[m.fromR][m.fromC] = piece;
         boardState[m.toR][m.toC] = target;
 
         // Small jitter so AI varies openings
-        score += (Math.random() - 0.5) * 14;
+        score += (Math.random() - 0.5) * (aiDifficulty === 'hard' ? 3 : 14);
 
         if (score > bestScore + 1) {
           bestScore = score;
@@ -4727,6 +4735,7 @@ export function initWizardChess() {
       },
       getState: () => ({
         gameMode,
+        aiDifficulty,
         scriptedGameActive,
         scriptDeviated,
         scriptMovesCount: scriptMoves.length,
@@ -4913,6 +4922,21 @@ export function initWizardChess() {
 
     const hintButton = document.getElementById('btn-hint-move');
     if (hintButton) hintButton.addEventListener('click', showHintMove);
+
+    const difficultyButton = document.getElementById('btn-ai-difficulty');
+    if (difficultyButton) {
+      const updateDifficultyLabel = () => {
+        difficultyButton.textContent = `AI: ${aiDifficulty.charAt(0).toUpperCase() + aiDifficulty.slice(1)}`;
+        difficultyButton.setAttribute('aria-label', `AI difficulty ${aiDifficulty}. Tap to change`);
+      };
+      difficultyButton.addEventListener('click', () => {
+        const levels = ['easy', 'medium', 'hard'];
+        aiDifficulty = levels[(levels.indexOf(aiDifficulty) + 1) % levels.length];
+        try { localStorage.setItem('wizard_chess_ai_difficulty', aiDifficulty); } catch (_) {}
+        updateDifficultyLabel();
+      });
+      updateDifficultyLabel();
+    }
 
     window.wizardChess.stepBy = (seconds, steps = 24) => {
       const subDt = seconds / steps;
