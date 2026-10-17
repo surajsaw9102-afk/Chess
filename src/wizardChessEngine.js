@@ -2215,7 +2215,7 @@ export function initWizardChess() {
         return false;
       }
 
-      if (!options.fromRemote && !options.skipValidation) {
+      if (!options.skipValidation) {
         const legalForPiece = getLegalMovesForPiece(fromR, fromC);
         if (!legalForPiece.some((m) => m.r === toR && m.c === toC)) {
           return false;
