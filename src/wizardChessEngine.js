@@ -1499,6 +1499,8 @@ export function initWizardChess() {
     // =========================================================================
     let boardState = Array.from({ length: 8 }, () => Array(8).fill(null));
     let currentTurn = 'w';
+    // Destination square available for an en-passant capture after a two-square pawn move.
+    let enPassantTarget = null;
     let selectedSquare = null;
     let validMoves = [];
     let isAnimatingMove = false;
@@ -1738,6 +1740,7 @@ export function initWizardChess() {
     function captureBoardSnapshot() {
       return {
         currentTurn,
+        enPassantTarget: enPassantTarget ? { ...enPassantTarget } : null,
         gameOver,
         capturedByWhite,
         capturedByBlack,
@@ -1779,6 +1782,7 @@ export function initWizardChess() {
       validMoves = [];
       isAnimatingMove = false;
       currentTurn = snap.currentTurn;
+      enPassantTarget = snap.enPassantTarget ? { ...snap.enPassantTarget } : null;
       gameOver = snap.gameOver;
       capturedByWhite = snap.capturedByWhite;
       capturedByBlack = snap.capturedByBlack;
@@ -1900,6 +1904,13 @@ export function initWizardChess() {
             const target = board[r + dir][c + dc];
             if (target && target.color !== color) {
               moves.push({ r: r + dir, c: c + dc, capture: true });
+            } else if (
+              !target && enPassantTarget &&
+              enPassantTarget.r === r + dir && enPassantTarget.c === c &&
+              board[r][c + dc] && board[r][c + dc].type === 'pawn' &&
+              board[r][c + dc].color !== color
+            ) {
+              moves.push({ r: r + dir, c: c + dc, capture: true, enPassant: true });
             }
           }
         }
@@ -2034,11 +2045,14 @@ export function initWizardChess() {
       const legal = [];
       for (const m of pseudo) {
         const savedTarget = boardState[m.r][m.c];
+        const enPassantVictim = m.enPassant ? boardState[r][m.c] : null;
+        if (m.enPassant) boardState[r][m.c] = null;
         boardState[m.r][m.c] = piece;
         boardState[r][c] = null;
         const inCheck = isKingInCheck(piece.color, boardState);
         boardState[r][c] = piece;
         boardState[m.r][m.c] = savedTarget;
+        if (m.enPassant) boardState[r][m.c] = enPassantVictim;
         if (!inCheck) legal.push(m);
       }
 
@@ -2210,6 +2224,11 @@ export function initWizardChess() {
       if (piece.color !== currentTurn) return false;
 
       const targetOnDest = boardState[toR]?.[toC];
+      const enPassantCapture = piece.type === 'pawn' && !targetOnDest && enPassantTarget &&
+        enPassantTarget.r === toR && enPassantTarget.c === toC &&
+        boardState[fromR]?.[toC]?.type === 'pawn' &&
+        boardState[fromR][toC].color !== piece.color
+        ? boardState[fromR][toC] : null;
       // Strictly forbid friendly fire (a piece can never move onto or attack a piece of the same color)
       if (targetOnDest && targetOnDest.color === piece.color) {
         return false;
@@ -2236,7 +2255,7 @@ export function initWizardChess() {
           fromC,
           toR,
           toC,
-          capture: Boolean(targetOnDest),
+          capture: Boolean(targetOnDest || enPassantCapture),
           promotion: options.promotion || 'queen'
         }
       });
@@ -2265,7 +2284,7 @@ export function initWizardChess() {
       }
       if (typeof updateScriptBarUI === 'function') updateScriptBarUI();
 
-      const captured = targetOnDest;
+      const captured = targetOnDest || enPassantCapture;
       const isCapture = Boolean(captured);
       isAnimatingMove = true;
       activeCamTransition = null;
@@ -2620,6 +2639,7 @@ export function initWizardChess() {
 
       function finishMove() {
         resetBystandersToHome();
+        if (enPassantCapture) boardState[fromR][toC] = null;
         boardState[fromR][fromC] = null;
         boardState[toR][toC] = piece;
         piece.r = toR;
@@ -2665,6 +2685,9 @@ export function initWizardChess() {
           updateRaycastTargets();
         }
 
+        enPassantTarget = piece.type === 'pawn' && Math.abs(toR - fromR) === 2
+          ? { r: (toR + fromR) / 2, c: fromC }
+          : null;
         currentTurn = currentTurn === 'w' ? 'b' : 'w';
         isAnimatingMove = false;
         updateTurnUI();
