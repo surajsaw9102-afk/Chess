@@ -71,8 +71,45 @@ export function initWizardChess() {
       powerPreference: 'high-performance',
       preserveDrawingBuffer: isAutomatedTest
     });
+    // Mobile-first rendering: DPR is a major fill-rate cost on phone GPUs.
+    // Avoid near-native 3x rendering on phones while preserving detail on capable devices.
+    let graphicsQuality = 'auto';
+    try {
+      const savedQuality = localStorage.getItem('wizard_chess_graphics_quality');
+      if (savedQuality === 'smooth' || savedQuality === 'high') graphicsQuality = savedQuality;
+    } catch (_) {}
+
+    const getRenderPixelRatio = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const cores = navigator.hardwareConcurrency || 4;
+      const memory = navigator.deviceMemory || 4;
+      if (graphicsQuality === 'smooth') return Math.min(dpr, isMobileDevice ? 0.9 : 1.25);
+      if (graphicsQuality === 'high') return Math.min(dpr, isMobileDevice ? 1.5 : 2);
+      if (isMobileDevice) {
+        const lowEndDevice = cores <= 4 || memory <= 4;
+        return Math.min(dpr, lowEndDevice ? 1.1 : 1.35);
+      }
+      return Math.min(dpr, 1.75);
+    };
+
+    function setGraphicsQuality(quality) {
+      graphicsQuality = ['auto', 'smooth', 'high'].includes(quality) ? quality : 'auto';
+      try {
+        localStorage.setItem('wizard_chess_graphics_quality', graphicsQuality);
+      } catch (_) {}
+      renderer.setPixelRatio(getRenderPixelRatio());
+      renderer.shadowMap.enabled = graphicsQuality !== 'smooth';
+      renderer.shadowMap.needsUpdate = true;
+      const button = document.getElementById('btn-graphics-quality');
+      if (button) {
+        button.textContent = `Graphics: ${graphicsQuality.charAt(0).toUpperCase() + graphicsQuality.slice(1)}`;
+        button.setAttribute('aria-label', `Graphics quality: ${graphicsQuality}. Tap to change`);
+      }
+      renderer.render(scene, camera);
+      return graphicsQuality;
+    }
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(isMobileDevice ? Math.min(window.devicePixelRatio, 1.75) : Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(getRenderPixelRatio());
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.shadowMap.autoUpdate = false;
@@ -1472,6 +1509,11 @@ export function initWizardChess() {
     // Mode & Player Configuration
     let gameMode = 'single'; // 'single' | 'multi'
     let playerColor = 'w';   // 'w' | 'b' | 'spectator'
+    let aiDifficulty = 'medium';
+    try {
+      const savedDifficulty = localStorage.getItem('wizard_chess_ai_difficulty');
+      if (['easy', 'medium', 'hard'].includes(savedDifficulty)) aiDifficulty = savedDifficulty;
+    } catch (_) {}
     let aiAutoPlay = true;
     let aiTimer = null;
 
@@ -2862,6 +2904,9 @@ export function initWizardChess() {
     function chooseSmartAIMove(color) {
       const legalMoves = getAllLegalMoves(color);
       if (legalMoves.length === 0) return null;
+      if (aiDifficulty === 'easy') {
+        return legalMoves[Math.floor(Math.random() * legalMoves.length)];
+      }
 
       let bestScore = -Infinity;
       let bestCandidates = [];
@@ -2873,17 +2918,17 @@ export function initWizardChess() {
 
         // Material gain on capture
         if (target) {
-          score += PIECE_VALUES[target.type] * 1.15 - PIECE_VALUES[piece.type] * 0.08;
+          score += PIECE_VALUES[target.type] * (aiDifficulty === 'hard' ? 1.35 : 1.15) - PIECE_VALUES[piece.type] * 0.08;
         }
 
         // Center control bonus
         const centerDist = Math.abs(3.5 - m.toR) + Math.abs(3.5 - m.toC);
-        score += (7 - centerDist) * 8;
+        score += (7 - centerDist) * (aiDifficulty === 'hard' ? 5 : 8);
 
         // Pawn advancement bonus
         if (piece.type === 'pawn') {
           const advance = color === 'w' ? (6 - m.toR) : (m.toR - 1);
-          score += advance * 12;
+          score += advance * (aiDifficulty === 'hard' ? 8 : 12);
         }
 
         // Simulate move to check if destination is hanging or gives check
@@ -2891,17 +2936,17 @@ export function initWizardChess() {
         boardState[m.fromR][m.fromC] = null;
         const oppColor = color === 'w' ? 'b' : 'w';
         if (isKingInCheck(oppColor, boardState)) {
-          score += 45;
+          score += aiDifficulty === 'hard' ? 85 : 45;
         }
         // Check if opponent can recapture on destination square
         if (isSquareAttacked(m.toR, m.toC, oppColor, boardState)) {
-          score -= PIECE_VALUES[piece.type] * 0.75;
+          score -= PIECE_VALUES[piece.type] * (aiDifficulty === 'hard' ? 1.15 : 0.75);
         }
         boardState[m.fromR][m.fromC] = piece;
         boardState[m.toR][m.toC] = target;
 
         // Small jitter so AI varies openings
-        score += (Math.random() - 0.5) * 14;
+        score += (Math.random() - 0.5) * (aiDifficulty === 'hard' ? 3 : 14);
 
         if (score > bestScore + 1) {
           bestScore = score;
@@ -2912,6 +2957,28 @@ export function initWizardChess() {
       }
 
       return bestCandidates[Math.floor(Math.random() * bestCandidates.length)] || legalMoves[0];
+    }
+
+    function showHintMove() {
+      if (isAnimatingMove || gameOver) return false;
+      const chosen = chooseSmartAIMove(currentTurn);
+      if (!chosen) return false;
+      const piece = boardState[chosen.fromR][chosen.fromC];
+      const move = {
+        r: chosen.toR,
+        c: chosen.toC,
+        capture: Boolean(chosen.capture)
+      };
+      showSquareHighlights(chosen.fromR, chosen.fromC, [move]);
+      const turnText = document.getElementById('turn-text');
+      if (turnText) {
+        const files = 'abcdefgh';
+        const from = `${files[chosen.fromC]}${8 - chosen.fromR}`;
+        const to = `${files[chosen.toC]}${8 - chosen.toR}`;
+        turnText.textContent = `Hint: ${piece?.type || 'Piece'} ${from} → ${to}`;
+      }
+      renderer.render(scene, camera);
+      return { fromR: chosen.fromR, fromC: chosen.fromC, toR: chosen.toR, toC: chosen.toC };
     }
 
     function triggerAIMoveNow() {
@@ -3773,6 +3840,23 @@ export function initWizardChess() {
       const btnSideToggle = document.getElementById('btn-side-toggle');
       const roomPill = document.getElementById('room-pill');
       const capturedTray = document.getElementById('captured-tray');
+      const moveHistoryTray = document.getElementById('move-history-tray');
+
+      if (moveHistoryTray) {
+        const start = Math.max(0, moveHistory.length - 8);
+        const files = 'abcdefgh';
+        const recentMoves = moveHistory.slice(start).map((entry, index) => {
+          const move = entry.move;
+          const ply = start + index;
+          const from = `${files[move.fromC]}${8 - move.fromR}`;
+          const to = `${files[move.toC]}${8 - move.toR}`;
+          const moveNumber = Math.floor(ply / 2) + 1;
+          const prefix = move.color === 'w' ? `${moveNumber}. ` : '';
+          return `${prefix}${from}${move.capture ? '×' : '–'}${to}`;
+        });
+        moveHistoryTray.textContent = recentMoves.length ? `Recent: ${recentMoves.join('  ')}` : 'Moves: —';
+        moveHistoryTray.title = `Showing the last ${recentMoves.length} plies`;
+      }
 
       turnDot.className = 'turn-dot' + (currentTurn === 'b' ? ' black' : '');
 
@@ -4585,6 +4669,8 @@ export function initWizardChess() {
       },
       executeChessMove,
       triggerAIMoveNow,
+      showHintMove,
+      setGraphicsQuality,
       resetChessBoard,
       openLobbyModal,
       closeLobbyModal,
@@ -4666,6 +4752,7 @@ export function initWizardChess() {
       },
       getState: () => ({
         gameMode,
+        aiDifficulty,
         scriptedGameActive,
         scriptDeviated,
         scriptMovesCount: scriptMoves.length,
@@ -4839,6 +4926,34 @@ export function initWizardChess() {
         return res.json();
       }
     };
+
+    const graphicsQualityButton = document.getElementById('btn-graphics-quality');
+    if (graphicsQualityButton) {
+      graphicsQualityButton.addEventListener('click', () => {
+        const modes = ['auto', 'smooth', 'high'];
+        const next = modes[(modes.indexOf(graphicsQuality) + 1) % modes.length];
+        setGraphicsQuality(next);
+      });
+      setGraphicsQuality(graphicsQuality);
+    }
+
+    const hintButton = document.getElementById('btn-hint-move');
+    if (hintButton) hintButton.addEventListener('click', showHintMove);
+
+    const difficultyButton = document.getElementById('btn-ai-difficulty');
+    if (difficultyButton) {
+      const updateDifficultyLabel = () => {
+        difficultyButton.textContent = `AI: ${aiDifficulty.charAt(0).toUpperCase() + aiDifficulty.slice(1)}`;
+        difficultyButton.setAttribute('aria-label', `AI difficulty ${aiDifficulty}. Tap to change`);
+      };
+      difficultyButton.addEventListener('click', () => {
+        const levels = ['easy', 'medium', 'hard'];
+        aiDifficulty = levels[(levels.indexOf(aiDifficulty) + 1) % levels.length];
+        try { localStorage.setItem('wizard_chess_ai_difficulty', aiDifficulty); } catch (_) {}
+        updateDifficultyLabel();
+      });
+      updateDifficultyLabel();
+    }
 
     window.wizardChess.stepBy = (seconds, steps = 24) => {
       const subDt = seconds / steps;
@@ -5094,18 +5209,33 @@ export function initWizardChess() {
       manualStepMode = Boolean(v);
     };
 
+    let animationFrameId = 0;
     function animate() {
-      if (!navigator.webdriver && !manualStepMode) {
-        requestAnimationFrame(animate);
+      if (manualStepMode || navigator.webdriver) return;
+      // Do not spend GPU/battery time rendering a game that is in the background.
+      if (document.hidden) {
+        animationFrameId = 0;
+        return;
       }
-      if (manualStepMode) return;
+      animationFrameId = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.1);
       stepScene(dt || 0.016, true);
     }
 
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        animationFrameId = 0;
+        clock.getDelta();
+      } else if (!manualStepMode && !navigator.webdriver && !animationFrameId) {
+        animationFrameId = requestAnimationFrame(animate);
+      }
+    });
+
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
+      renderer.setPixelRatio(getRenderPixelRatio());
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 

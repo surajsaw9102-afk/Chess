@@ -154,6 +154,22 @@ export default function App() {
           </button>
           <button
             className="hud-btn"
+            id="btn-ai-difficulty"
+            title="Cycle between Easy, Medium and Hard AI"
+            onClick={() => setMobileSheetOpen(false)}
+          >
+            AI: Medium
+          </button>
+          <button
+            className="hud-btn"
+            id="btn-hint-move"
+            title="Show a suggested legal move without playing it"
+            onClick={() => setMobileSheetOpen(false)}
+          >
+            Suggest Move
+          </button>
+          <button
+            className="hud-btn"
             id="btn-reset"
             title="Start a fresh game on the altar"
             onClick={() => setMobileSheetOpen(false)}
@@ -201,6 +217,14 @@ export default function App() {
 
           <button
             className="hud-btn"
+            id="btn-graphics-quality"
+            title="Cycle Auto, Smooth and High graphics quality to balance visuals, heat and battery"
+          >
+            Graphics: Auto
+          </button>
+
+          <button
+            className="hud-btn"
             id="btn-hide-ui"
             title="Toggle HUD visibility (Shortcut: H)"
             onClick={() => setMobileSheetOpen(false)}
@@ -219,6 +243,7 @@ export default function App() {
           <strong>Controls:</strong> Click Piece to Move &nbsp;•&nbsp; Left-Drag: Orbit &nbsp;•&nbsp; Right-Drag: Pan &nbsp;•&nbsp; Scroll: Zoom &nbsp;•&nbsp; WASD + R/F: Fly Cam &nbsp;•&nbsp; H: Hide UI
         </div>
         <div className="captured-pill" id="captured-tray"></div>
+        <div className="move-history-pill" id="move-history-tray" aria-live="polite">Moves: —</div>
       </div>
 
       <div id="checkmate-overlay" role="status" aria-live="polite">
