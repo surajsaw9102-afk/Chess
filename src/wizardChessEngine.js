@@ -71,8 +71,20 @@ export function initWizardChess() {
       powerPreference: 'high-performance',
       preserveDrawingBuffer: isAutomatedTest
     });
+    // Mobile-first rendering: DPR is a major fill-rate cost on phone GPUs.
+    // Avoid near-native 3x rendering on phones while preserving detail on capable devices.
+    const getRenderPixelRatio = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const cores = navigator.hardwareConcurrency || 4;
+      const memory = navigator.deviceMemory || 4;
+      if (isMobileDevice) {
+        const lowEndDevice = cores <= 4 || memory <= 4;
+        return Math.min(dpr, lowEndDevice ? 1.1 : 1.35);
+      }
+      return Math.min(dpr, 1.75);
+    };
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(isMobileDevice ? Math.min(window.devicePixelRatio, 1.75) : Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(getRenderPixelRatio());
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.shadowMap.autoUpdate = false;
@@ -5094,18 +5106,33 @@ export function initWizardChess() {
       manualStepMode = Boolean(v);
     };
 
+    let animationFrameId = 0;
     function animate() {
-      if (!navigator.webdriver && !manualStepMode) {
-        requestAnimationFrame(animate);
+      if (manualStepMode || navigator.webdriver) return;
+      // Do not spend GPU/battery time rendering a game that is in the background.
+      if (document.hidden) {
+        animationFrameId = 0;
+        return;
       }
-      if (manualStepMode) return;
+      animationFrameId = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.1);
       stepScene(dt || 0.016, true);
     }
 
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        animationFrameId = 0;
+        clock.getDelta();
+      } else if (!manualStepMode && !navigator.webdriver && !animationFrameId) {
+        animationFrameId = requestAnimationFrame(animate);
+      }
+    });
+
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
+      renderer.setPixelRatio(getRenderPixelRatio());
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
