@@ -1906,7 +1906,7 @@ export function initWizardChess() {
               moves.push({ r: r + dir, c: c + dc, capture: true });
             } else if (
               !target && enPassantTarget &&
-              enPassantTarget.r === r + dir && enPassantTarget.c === c &&
+              enPassantTarget.r === r + dir && enPassantTarget.c === c + dc &&
               board[r][c + dc] && board[r][c + dc].type === 'pawn' &&
               board[r][c + dc].color !== color
             ) {
