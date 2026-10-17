@@ -154,6 +154,14 @@ export default function App() {
           </button>
           <button
             className="hud-btn"
+            id="btn-ai-difficulty"
+            title="Cycle between Easy, Medium and Hard AI"
+            onClick={() => setMobileSheetOpen(false)}
+          >
+            AI: Medium
+          </button>
+          <button
+            className="hud-btn"
             id="btn-hint-move"
             title="Show a suggested legal move without playing it"
             onClick={() => setMobileSheetOpen(false)}
