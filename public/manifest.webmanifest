@@ -1,0 +1,17 @@
+{
+  "name": "Wizard Chess 3D",
+  "short_name": "Wizard Chess",
+  "description": "Interactive 3D Gothic Cathedral Wizard Chess.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070a12",
+  "theme_color": "#070a12",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
